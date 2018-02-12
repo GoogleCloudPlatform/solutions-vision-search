@@ -1,0 +1,19 @@
+name: "Image search web frontend"
+description:
+    "This example code is based on the Polymer Starter Kit."
+    "The code is distributed as part of a tutorial on building an image search "
+    "application using the Cloud Vision API."
+
+third_party {
+  url {
+    type: HOMEPAGE
+    value: "https://developers.google.com/web/tools/polymer-starter-kit/"
+  }
+  url {
+    type: GIT
+    value: "https://github.com/PolymerElements/polymer-starter-kit"
+  }
+  version: "2"
+  last_upgrade_date { year: 2017 month: 08 day: 22 }
+  license_type: NOTICE
+}

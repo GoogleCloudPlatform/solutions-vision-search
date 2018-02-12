@@ -1,0 +1,194 @@
+<!--
+@license
+Copyright (c) 2016 The Polymer Project Authors. All rights reserved.
+This code may only be used under the BSD style license found at http://polymer.github.io/LICENSE.txt
+The complete set of authors may be found at http://polymer.github.io/AUTHORS.txt
+The complete set of contributors may be found at http://polymer.github.io/CONTRIBUTORS.txt
+Code distributed by Google as part of the polymer project is also
+subject to an additional IP rights grant found at http://polymer.github.io/PATENTS.txt
+-->
+
+<link rel="import" href="../bower_components/polymer/polymer-element.html">
+<link rel="import" href="../bower_components/paper-card/paper-card.html">
+<link rel="import" href="../bower_components/paper-button/paper-button.html">
+<link rel="import" href="../bower_components/paper-input/paper-input.html">
+<link rel="import" href="../bower_components/iron-icon/iron-icon.html">
+<link rel="import" href="../bower_components/iron-form/iron-form.html">
+<link rel="import" href="../bower_components/iron-ajax/iron-ajax.html">
+<link rel="import" href="../bower_components/iron-image/iron-image.html">
+<link rel="import" href="../bower_components/paper-styles/shadow.html">
+<link rel="import" href="../bower_components/paper-dialog/paper-dialog.html">
+
+<link rel="import" href="shared-styles.html">
+
+<dom-module id="my-search">
+  <template>
+    <style include="shared-styles">
+      :host {
+        display: block;
+        padding: 10px;
+      }
+
+      #search-panel {
+        @apply --shadow-elevation-2dp;
+        background-color: #fff;
+        padding: 15px;
+      }
+
+      #search-panel > #button-row {
+        @apply --layout-horizontal;
+        @apply --layout-end-justified;
+      }
+
+      #image-grid {
+        @apply --layout-horizontal;
+        @apply --layout-wrap;
+        padding-top: 10px;
+      }
+
+      #image-grid > paper-card {
+        box-sizing: border-box;
+        max-width: 250px;
+        margin: 2px;
+        flex: 0 0 auto;
+      }
+
+      #image-grid > a {
+        margin: 8px
+      }
+
+      #image-grid > a:link {
+        color: inherit;
+      }
+
+      #dialog {
+        vertical-align: middle;
+      }
+
+      #search {
+        --paper-input-container-input: {
+          font-size: 18px;
+        };
+      }
+
+    </style>
+
+    <div id="search-panel">
+      <iron-form id="search-iron-form">
+        <form id="search-form" method="get">
+          <paper-input id="search" label="Search for" on-keypress="_keyPressed" required></paper-input>
+          <paper-button on-click="_submit">search</paper-button>
+          <paper-button on-click="_reset">reset</paper-button>
+        </form>
+      </iron-form>
+    </div>
+    <div id="image-grid">
+      <template id="imagerepeat" is="dom-repeat" items="[[images]]">
+        <a href="#" on-click="_preview">
+          <paper-card image="{{item.fields.thumb_url}}" alt="">
+            <div class="card-content">
+              [[item.fields.image_id]]
+            </div>
+          </paper-card>
+        </a>
+      </template>
+      <iron-ajax
+        id="requestQuery"
+        url="/query"
+        params={{ajaxParams}}
+        handle-as="json"
+        on-response="_handleResponse">
+      </iron-ajax>
+      <paper-dialog id="dialog">
+        <iron-image id="preview" sizing="contain"
+          src="[[previewImageUrl]]"></iron-image>
+      </paper-dialog>
+    </div>
+  </template>
+
+  <script>
+    class MySearch extends Polymer.Element {
+      static get is() { return 'my-search'; }
+      static get properties() {
+        return {
+          facets: {
+            type: Object,
+            notify: true
+          },
+          querytext: {
+            type: String,
+            notify: true
+          },
+          refinements: {
+            type: Object,
+            notify: true,
+            observer: '_refinementsChanged'
+          }
+        }
+      }
+
+      ready() {
+        super.ready();
+        this._reset();
+      }
+
+      _submit() {
+        // Submit query to the search backend
+        this.querytext = this.$.search.value;
+        this.ajaxParams = {'text': this.querytext};
+        this.$.requestQuery.generateRequest();
+      }
+
+      _reset() {
+        // Reset the page and clears search results
+        this.$.search.value = '';
+        this.querytext = '';
+        this.refinements = null;
+      }
+
+      _keyPressed(e) {
+        // Submit search when enter key is pressed
+        if (event.which == 13 || event.keyCode == 13) {
+          this._submit();
+        }
+      }
+
+      _handleResponse(e) {
+        // Handle API response from search backend and update Polymer properties
+        this.images = e.detail.response.documents;
+        this.facets = e.detail.response.facets;
+      }
+
+      _preview(e) {
+        // Show preview of the image
+        let thisImage = this.$.imagerepeat.itemForElement(e.target);
+        this.previewImageUrl = thisImage["fields"]["preview_url"][0];
+
+        // Proportions are optimized for a landscape image
+        let width = window.innerWidth * 0.6;
+        if (width > 700) {
+          width = 700;
+        }
+
+        this.$.preview.width = width;
+        this.$.preview.height = this.$.preview.width * 0.67;
+        this.$.dialog.open();
+      }
+
+      _refinementsChanged(e) {
+        // Add facet refinements and submit query to search backend
+        let refineArr = [];
+        let r;
+
+        for (r in this.refinements) {
+          refineArr.push(this.refinements[r].facet_token);
+        }
+
+        this.ajaxParams = {'text': this.querytext, 'refine': refineArr.join(',')}
+        this.$.requestQuery.generateRequest();
+      }
+    }
+
+    window.customElements.define(MySearch.is, MySearch);
+  </script>
+</dom-module>

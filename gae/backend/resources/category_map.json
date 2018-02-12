@@ -1,0 +1,8 @@
+{
+  "categorymaps": {
+      "vehicles": ["bus", "car", "train", "road", "aeroplane", "truck", "boat", "traffic"],
+      "nature": ["water", "waterfall", "sky", "cloud", "coast", "ocean", "landscape", "mountain"],
+      "city": ["city", "metropolis", "building", "tower", "urban area", "cityscape", "landmark", "town"],
+      "animals": ["dog", "cat", "fish", "horse", "animal", "bird", "parrot", "budgie"]
+  }
+}

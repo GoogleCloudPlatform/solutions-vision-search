@@ -1,0 +1,5 @@
+Werkzeug==0.12.2
+Flask==0.12.2
+flask-hashing==1.0
+google-api-python-client==1.6.2
+functools32==3.2.3.post2; python_version < "3"

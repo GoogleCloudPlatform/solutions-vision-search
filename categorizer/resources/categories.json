@@ -1,0 +1,8 @@
+{
+  "categories": {
+      "0": ["transport", "vehicle", "road", "traffic"],
+      "1": ["nature", "desert", "ocean", "mountain"],
+      "2": ["city", "building", "bridge", "tower"],
+      "3": ["animal", "creature", "species", "pet"]
+  }
+}

@@ -1,0 +1,319 @@
+<!--
+@license
+Copyright (c) 2016 The Polymer Project Authors. All rights reserved.
+This code may only be used under the BSD style license found at http://polymer.github.io/LICENSE.txt
+The complete set of authors may be found at http://polymer.github.io/AUTHORS.txt
+The complete set of contributors may be found at http://polymer.github.io/CONTRIBUTORS.txt
+Code distributed by Google as part of the polymer project is also
+subject to an additional IP rights grant found at http://polymer.github.io/PATENTS.txt
+-->
+
+<link rel="import" href="../bower_components/polymer/polymer-element.html">
+<link rel="import" href="../bower_components/app-layout/app-drawer/app-drawer.html">
+<link rel="import" href="../bower_components/app-layout/app-drawer-layout/app-drawer-layout.html">
+<link rel="import" href="../bower_components/app-layout/app-header/app-header.html">
+<link rel="import" href="../bower_components/app-layout/app-header-layout/app-header-layout.html">
+<link rel="import" href="../bower_components/app-layout/app-scroll-effects/app-scroll-effects.html">
+<link rel="import" href="../bower_components/app-layout/app-toolbar/app-toolbar.html">
+<link rel="import" href="../bower_components/app-route/app-location.html">
+<link rel="import" href="../bower_components/app-route/app-route.html">
+<link rel="import" href="../bower_components/iron-pages/iron-pages.html">
+<link rel="import" href="../bower_components/iron-list/iron-list.html">
+<link rel="import" href="../bower_components/iron-icons/iron-icons.html">
+<link rel="import" href="../bower_components/iron-selector/iron-selector.html">
+<link rel="import" href="../bower_components/paper-icon-button/paper-icon-button.html">
+<link rel="import" href="my-icons.html">
+
+<link rel="lazy-import" href="my-search.html">
+
+<dom-module id="my-app">
+  <template>
+    <style>
+      :host {
+        --app-primary-color: #4285f4;
+        --app-secondary-color: black;
+
+        display: block;
+      }
+
+      app-drawer-layout:not([narrow]) [drawer-toggle] {
+        display: none;
+      }
+
+      app-header {
+        color: #fff;
+        background-color: var(--app-primary-color);
+      }
+
+      app-header paper-icon-button {
+        --paper-icon-button-ink-color: white;
+      }
+
+      #facets-container {
+        padding-left: 17px;
+      }
+
+      #facets-container a {
+        color: inherit;
+        text-decoration: none;
+        font-size: 10pt;
+      }
+
+      #facets-container iron-icon {
+        color: #878787;
+        margin-right: 5px;
+      }
+
+      .facet-heading {
+        font-weight: bold;
+        margin-bottom: 5px;
+      }
+
+      .drawer-list {
+        margin: 0 20px;
+      }
+
+      .drawer-list a {
+        display: block;
+        padding: 0 16px;
+        text-decoration: none;
+        color: var(--app-secondary-color);
+        line-height: 40px;
+      }
+
+      .drawer-list a.iron-selected {
+        color: black;
+        font-weight: bold;
+      }
+    </style>
+
+    <app-location route="{{route}}" url-space-regex="^[[rootPath]]"></app-location>
+    <app-route
+        route="{{route}}"
+        pattern="[[rootPath]]:page"
+        data="{{routeData}}"
+        tail="{{subroute}}"></app-route>
+
+    <app-drawer-layout fullbleed narrow="{{narrow}}">
+      <!-- Drawer content -->
+      <app-drawer id="drawer" slot="drawer" swipe-open="[[narrow]]">
+        <app-toolbar>Search Facets</app-toolbar>
+        <template is="dom-if" if="{{refinements}}">
+          <div id="facets-container">
+            <div class="facet-heading">Selected Facets</div>
+              <iron-list items="{{refinements}}">
+                <template>
+                  <div>
+                    <a href="#" on-click="_removeRefinement">
+                      <iron-icon icon="icons:remove-circle"></iron-icon>
+                      [[_getFriendlyFacetName(item.facet_name)]]: [[item.facet_value]]
+                    </a>
+                  </div>
+                </template>
+              </iron-list>
+            <br>
+          </div>
+        </template>
+        <template is="dom-repeat" id="facetrepeat" items="{{_filterAvailableFacets(facets)}}">
+          <div id="facets-container">
+          <div class="facet-heading">[[_getFriendlyFacetName(item.name)]]</div>
+            <iron-list items="[[item.value]]">
+              <template>
+                <div>
+                  <a href="#" on-click="_addRefinement">
+                    <iron-icon icon="icons:add-circle"></iron-icon>
+                    [[item.facet_value]] ([[item.facet_count]])
+                  </a>
+                </div>
+              </template>
+            </iron-list>
+            <br>
+          </div>
+        </template>
+      </app-drawer>
+
+      <!-- Main content -->
+      <app-header-layout has-scrolling-region>
+
+        <app-header slot="header" condenses reveals effects="waterfall">
+          <app-toolbar>
+            <paper-icon-button icon="my-icons:menu" drawer-toggle></paper-icon-button>
+            <div main-title>Cloud Vision API Image Search Demo</div>
+          </app-toolbar>
+        </app-header>
+
+        <iron-pages
+            selected="[[page]]"
+            attr-for-selected="name"
+            fallback-selection="view404"
+            role="main">
+          <my-search name="search" facets="{{facets}}" refinements="{{refinements}}"></my-search>
+          <my-view404 name="view404"></my-view404>
+        </iron-pages>
+      </app-header-layout>
+    </app-drawer-layout>
+  </template>
+
+  <script>
+    class MyApp extends Polymer.Element {
+      static get is() { return 'my-app'; }
+
+      static get properties() {
+        return {
+          page: {
+            type: String,
+            reflectToAttribute: true,
+            observer: '_pageChanged',
+          },
+          routeData: Object,
+          subroute: String,
+          friendlyFacetNames: Object,
+          // This shouldn't be neccessary, but the Analyzer isn't picking up
+          // Polymer.Element#rootPath
+          rootPath: String,
+        };
+      }
+
+      static get observers() {
+        return [
+          '_routePageChanged(routeData.page)',
+        ];
+      }
+
+      ready() {
+        super.ready();
+        // Set friendly names for the facets returned by the search backend
+        this.friendlyFacetNames = {
+          label_facet: 'Image Label',
+          mapped_category_facet: 'Mapped Category',
+          most_similar_category_facet: 'Most Similar Category'
+        };
+        console.log('ready');
+      }
+
+      _getFriendlyFacetName(facetName) {
+        // Get friendly name for a facet returned by the search backend
+        if (facetName in this.friendlyFacetNames) {
+          return this.friendlyFacetNames[facetName];
+        }
+        return facetName;
+      }
+
+      _removeRefinement(e) {
+        // Remove a facet refinement
+        let t;
+
+        if (!this.refinements) {
+          t = []
+        }
+        else {
+          t = this.refinements.slice();
+        }
+
+        let index = -1;
+        let remove_token = e.model.get('item.facet_token');
+        let f;
+
+        for (f in this.refinements) {
+          if (this.refinements[f].facet_token == remove_token) {
+            index = f;
+            break;
+          }
+        }
+
+        if (index) {
+          t.splice(t.indexOf(index), 1);
+          if (t.length == 0) {
+            t = null;
+          }
+        }
+
+        // Modifying this.refinements will cause a new query to submitted
+        this.refinements = t;
+      }
+
+      _addRefinement(e) {
+        // Add a facet refinement
+        let t;
+
+        if (!this.refinements) {
+          t = []
+        }
+        else {
+          t = this.refinements.slice();
+        }
+
+        let facet = this.$.facetrepeat.itemForElement(e.target);
+
+        t.push({
+          facet_name: facet.name,
+          facet_value: e.model.get('item.facet_value'),
+          facet_token: e.model.get('item.facet_token')
+        });;
+
+        // Modifying this.refinements will cause a new query to submitted
+        this.refinements = t;
+      }
+
+      _filterAvailableFacets(obj) {
+        // Filters facet tokens to exclude those that have already been selected
+        let key;
+        let filteredFacets = [];
+
+        for (key in obj) {
+          let i;
+          let facetEntries = [];
+
+          for (i in obj[key]) {
+            let j;
+            let found = false;
+            for (j in this.refinements) {
+              if (this.refinements[j].facet_token == obj[key][i].facet_token) {
+                found = true;
+              }
+            }
+            if (!found) {
+              facetEntries.push(obj[key][i]);
+            }
+          }
+
+          if (facetEntries.length > 0) {
+            filteredFacets.push({
+              name: key,
+              value: facetEntries
+            })
+          }
+        }
+
+        return filteredFacets;
+      }
+
+      _routePageChanged(page) {
+        // If no page was found in the route data, page will be an empty string.
+        // Deault to 'view3' in that case.
+        this.page = page || 'search';
+
+        // Close a non-persistent drawer when the page & route are changed.
+        if (!this.$.drawer.persistent) {
+          this.$.drawer.close();
+        }
+      }
+
+      _pageChanged(page) {
+        // Load page import on demand. Show 404 page if fails
+        var resolvedPageUrl = this.resolveUrl('my-' + page + '.html');
+        Polymer.importHref(
+            resolvedPageUrl,
+            null,
+            this._showPage404.bind(this),
+            true);
+      }
+
+      _showPage404() {
+        this.page = 'view404';
+      }
+    }
+
+    window.customElements.define(MyApp.is, MyApp);
+  </script>
+</dom-module>
