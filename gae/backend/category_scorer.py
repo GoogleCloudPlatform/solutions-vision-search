@@ -59,7 +59,7 @@ def category_from_fixed_mappings(labels):
   # Iterate through labels
   for label in labels:
     for k, v in category_map['categorymaps'].iteritems():
-      if label['description'] in v:
+      if label['description'].lower() in [x.lower() for x in v]:
         if k in category_scores.keys():
           category_scores[k] += label['score']
         else:
