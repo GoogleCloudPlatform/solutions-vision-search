@@ -144,11 +144,12 @@ subject to an additional IP rights grant found at http://polymer.github.io/PATEN
         this.$.search.value = '';
         this.querytext = '';
         this.refinements = null;
+        this._submit();
       }
 
       _keyPressed(e) {
         // Submit search when enter key is pressed
-        if (event.which == 13 || event.keyCode == 13) {
+        if (e.which == 13 || e.keyCode == 13) {
           this._submit();
         }
       }
