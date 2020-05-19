@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import base64
+import cloudstorage
 import json
 import logging
 import os
@@ -22,11 +23,13 @@ from category_scorer import category_from_similar_vectors
 from flask import current_app, Flask, request, abort, jsonify, make_response
 from flask_hashing import Hashing
 from functools32 import lru_cache
+from google.appengine.api import app_identity
 from googleapiclient import discovery
 from oauth2client.client import GoogleCredentials
 
 from google.appengine.api import images
 from google.appengine.api import search
+from google.appengine.runtime import DeadlineExceededError
 
 app = Flask(__name__)
 
@@ -36,6 +39,8 @@ hashing = Hashing(app)
 
 app.config['MAX_SEARCH_RESULTS'] = os.environ['MAX_SEARCH_RESULTS']
 app.config['USE_CATEGORY_PREDICTOR'] = os.environ['USE_CATEGORY_PREDICTOR']
+app.config['USE_AUTOML_VISION'] = os.environ['USE_AUTOML_VISION']
+app.config['AUTOML_MODEL_ID'] = os.environ['AUTOML_MODEL_ID']
 app.config['THUMB_SIZE'] = os.environ['THUMB_SIZE']
 app.config['PREVIEW_SIZE'] = os.environ['PREVIEW_SIZE']
 app.config['ML_MODEL_NAME'] = os.environ['ML_MODEL_NAME']
@@ -49,6 +54,14 @@ def get_vision_svc():
   credentials = GoogleCredentials.get_application_default()
   vision_svc = discovery.build('vision', 'v1', credentials=credentials)
   return vision_svc
+
+
+@lru_cache()
+def get_automl_svc():
+  """Builds the AutoML Vision service object."""
+  credentials = GoogleCredentials.get_application_default()
+  automl_svc = discovery.build('automl', 'v1', credentials=credentials)
+  return automl_svc
 
 
 @app.route('/_ah/push-handlers/image', methods=['POST'])
@@ -76,6 +89,7 @@ def pubsub_push():
 
     mapped_category = ''
     most_similar_category = ''
+    automl_labels = None
 
     # Request label detection on the uploaded object
     labels = detect_labels(bucket_id, object_id)
@@ -91,6 +105,10 @@ def pubsub_push():
         max_similarity = max(category_scores)
         index = category_scores.index(max_similarity)
         most_similar_category = current_app.config['ML_CATEGORY_KEYS'][index]
+
+    # Request label detection from AutoML Vision
+    if current_app.config['USE_AUTOML_VISION'] == 'True':
+      automl_labels = detect_automl_labels(bucket_id, object_id)
 
     # Get thumbnail url
     thumb_size = int(current_app.config['THUMB_SIZE'])
@@ -111,7 +129,8 @@ def pubsub_push():
                                  mapped_category,
                                  most_similar_category,
                                  thumb_url,
-                                 preview_url)
+                                 preview_url,
+                                 automl_labels)
 
     logging.info('Document ID added: %s', doc_id)
 
@@ -135,6 +154,7 @@ def query():
   # Set search options
   max_search_results = int(current_app.config['MAX_SEARCH_RESULTS'])
   search_options = search.QueryOptions(limit=max_search_results)
+  facet_options = search.FacetOptions(discovery_limit=20)
 
   # Execute the search
   index = search.Index(name='imagesearch')
@@ -143,7 +163,8 @@ def query():
                                              'mapped_category_facet',
                                              'most_similar_category_facet'],
                               facet_refinements=facet_refinements,
-                              options=search_options)
+                              options=search_options,
+                              facet_options=facet_options)
 
   search_results = index.search(search_query)
 
@@ -209,7 +230,7 @@ def delete():
 
 
 def detect_labels(bucket_id, object_id):
-  """Detects labels from uploaded image."""
+  """Detects labels from uploaded image using Vision API."""
   try:
     # Construct GCS uri path
     gcs_image_uri = 'gs://{}/{}'.format(bucket_id, object_id)
@@ -239,13 +260,50 @@ def detect_labels(bucket_id, object_id):
 
     return labels
 
-  except runtime.DeadlineExceededError:
+  except DeadlineExceededError:
     logging.exception('Exceeded deadline in detect_labels()')
+
+
+def detect_automl_labels(bucket_id, object_id):
+  """Detects labels from image using AutoML Vision."""
+  try:
+    # Read image file contents from GCS
+    filename = '/{}/{}'.format(bucket_id, object_id)
+    gcs_file = cloudstorage.open(filename)
+    encoded_contents = base64.b64encode(gcs_file.read())
+    gcs_file.close()
+
+    # Build request payload dict for label detection
+    request_dict = {
+        'payload': {
+            'image': {
+                'imageBytes': encoded_contents
+            }
+        },
+        'params': {
+            'score_threshold': "0.5"
+        }
+    }
+
+    # Get predictions from the AutoML Vision model
+    automl_svc = get_automl_svc()
+    parent = 'projects/{}/locations/us-central1/models/{}'.format(
+        app_identity.get_application_id(),
+        current_app.config['AUTOML_MODEL_ID'])
+
+    request = automl_svc.projects().locations().models().predict(
+      name=parent, body=request_dict)
+    response = request.execute()
+
+    return response['payload']
+
+  except DeadlineExceededError:
+    logging.exception('Exceeded deadline in detect_automl_labels()')    
 
 
 def add_to_search_index(object_id, labels, metadata, mapped_category=None,
                         most_similar_category=None, thumb_url=None,
-                        preview_url=None):
+                        preview_url=None, automl_labels=None):
   """Adds document to the search index."""
   try:
     # Define document search fields - these can be queried using keyword search
@@ -259,10 +317,15 @@ def add_to_search_index(object_id, labels, metadata, mapped_category=None,
     # Add label descriptions into search and facet fields. Search API allows
     # multiple values for the same field.
     for label in labels:
-      fields.append(search.TextField(name='label',
-                                     value=label['description']))
-      facets.append(search.AtomFacet(name='label_facet',
-                                     value=label['description']))
+      label_value = label['description'].lower()
+      fields.append(search.TextField(name='label', value=label_value))
+      facets.append(search.AtomFacet(name='label_facet', value=label_value))
+
+    if automl_labels:
+      for label in automl_labels:
+        label_value = label['displayName'].lower()
+        fields.append(search.TextField(name='label', value=label_value))
+        facets.append(search.AtomFacet(name='label_facet', value=label_value))
 
     # Add mapped category and most similar category as facets
     if mapped_category:
@@ -283,13 +346,11 @@ def add_to_search_index(object_id, labels, metadata, mapped_category=None,
 
     # Add thumbnail url
     if thumb_url:
-      fields.append(search.TextField(name='thumb_url',
-                                     value=thumb_url))
+      fields.append(search.TextField(name='thumb_url', value=thumb_url))
 
     # Add preview url
     if thumb_url:
-      fields.append(search.TextField(name='preview_url',
-                                     value=preview_url))
+      fields.append(search.TextField(name='preview_url', value=preview_url))
 
     # Add any other object metadata as document search fields
     for k, v in metadata.iteritems():
@@ -330,3 +391,4 @@ def server_error(e):
   An internal error occurred: <pre>{}</pre>
   See logs for full stacktrace.
   """.format(e), 500
+  

@@ -20,6 +20,9 @@ threadsafe: true
 env_variables:
   # Whether to use ML Engine category predictor
   USE_CATEGORY_PREDICTOR: false
+  # AutoML Vision
+  USE_AUTOML_VISION: false
+  AUTOML_MODEL_ID: ICN1234 # Replace with your AutoML Vision model id
   # ML Engine configuration
   ML_MODEL_NAME: category_predictor
   ML_MODEL_VERSION: v1
